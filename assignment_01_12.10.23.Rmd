@@ -1,0 +1,396 @@
+---
+title: 'Assignment 1'
+author: "Catarina Gaspar"
+date: "Fall 2023"
+output: rmdformats::robobook
+---
+
+In this assignment, you will be immersed in a real-world scenario. Your work for the Ministry of Labor who is currently analysing data on job postings. Your team has realized that a significant share of job posts is fake, and wants to be able to detect which job posts are fake, and understand what distinguishes these posts from real ones.
+
+Your goal is to understand what the main differences between a real and a fake job posting are, and to build a model to predict whether a job posting is fake. Because the people that will read the ministry's report are not economists, the department asked you to build a short report explaining intuitively (1) the insights you get from the data, (2) the best model you found, and (3) the performance of the model - a discussion about how much it should be trusted and what is the error rate we expect in the future when you apply it to new data.
+
+At the end, you will come up with a model that will be tested on a dataset of job postings you have no access to. You will be competing against other groups and part of your grade on the assignment (20%) will depend on the relative performance of your model in this data, measured by its accuracy. More details in question 9.
+
+## Practicalities
+
+Your submission must be uploaded on Moodle by TBD (one submission by group). 
+
+Deliverables: You must deliver two components: (i) your code and (ii) a discussion of your results to present to the manager of the company. 
+
+**You can either complete this .Rmd file with both the code and your answers/interpretations (and then knit it to an html or pdf file) OR deliver the code and a short report with your insights separately.**
+
+Be complete but succinct. Follow the questions below as the guideline for your code and discussion. Make sure your code is executable, so that I can evaluate your performance. 
+
+# Prep
+
+```{r packages, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+# PRELIMINARIES
+
+rm(list=ls()) 
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+# Text mining library
+library(tidytext)
+
+# This sets global options
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+
+# Start from scratch - clean your environment
+rm(list = ls())
+
+# Tiphany 
+#setwd("~/Desktop/M2S2/DAE/Assignment in R/") 
+
+# Antoine
+setwd("~/Desktop/Data analytics/Project/")
+
+
+```
+
+# Questions
+
+1. Start by loading the data `fake_job_postings_students.csv` and take a look at it. The column `fraudulent` indicates whether a given job posting is real (0) or fake (1).
+
+```{r data, warning=FALSE, message=FALSE}
+
+#Load the data
+
+fakejob <- read.csv("fake_job_postings_students.csv")
+
+head(fakejob)
+
+
+```
+
+2. Let's start by exploring quickly some differences between fraudulent and real job postings. Create a table with the percentage of job postings that has the company logo, has questions and has telecomuting, split by whether the post is real or fake. What do you conclude?
+
+```{r, warning=FALSE, message=FALSE}
+
+# Code
+
+summary_table <- fakejob %>%
+  group_by(fraudulent) %>%
+  summarize(
+    Percentage_Company_Logo = mean(has_company_logo),
+    Percentage_Questions = mean(has_questions),
+    Percentage_Telecommuting = mean(telecommuting)
+  )
+
+summary_table
+
+##### Conclusion
+# It can be seen that the majority (81.85%) of real job postings have a company logo. For the fake job postings, it is only 31.79%. 
+# 50.19% of the real job postings contain questions, whereas only 28.70% of the fake job postings contain questions. 
+# 4.13% of the real job postings contain telecommuting The percentage is higher in the fake job postings, where 7.21% offer telecommuting.
+# From the analysis of the first two variables, it can be concluded that real job postings can be identified by the fact that they show a company logo and ask questions.
+#Looking at the telecommuting variable, we find that more fake job postings contain telecommuting than real job postings.
+
+```
+The ministry commonly uses these variables to detect fake job postings, but you learned in your master's degree how to analyse text data. You believe that analysing the text in the job will yield important insights.
+
+3. Split the description of the job post by word (tokens) and represent graphically the most common words (the 15 most common).
+
+```{r}
+
+# Hint: use unnest_tokens() in the column "description"
+
+tokens <- fakejob %>%
+  unnest_tokens(word, description)
+
+#Count the frequency of each token
+word_freq <- tokens %>%
+  count(word, sort = TRUE)
+
+# Select the top 15 most common words
+top_words <- word_freq %>%
+  head(15)
+
+# Create a bar chart of the most common words
+library(ggplot2)
+ggplot(top_words, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "pink") +
+  coord_flip() +
+  labs(x = "Word", y = "Frequency", title = "Top 15 Most Common Words in Job Postings")
+
+
+```
+
+4. Is the previous plot informative? Why/Why not? Improve it by eliminating stop words. Explain briefly what these words are. 
+
+```{r}
+
+# Is the previous plot informative? Why/Why not
+# No, because it only uses stop words, such as "and", "to", "the", "of" and "a" indicates. 
+# Stop words are a group of frequently used words in a language. Stop words do not help distinguish one document from another. 
+# That means we can't identify with the previous plot whether the posting is from a real job or a fake job.
+# To get better information, we need to remove stop words
+
+
+# Hint: use anti_join(stop_words) after loading data("stop_words")
+
+tokens <- fakejob %>%
+  unnest_tokens(word, description) %>%
+  anti_join(get_stopwords())   #taking out stopwords
+#  filter(is.na(as.numeric(word))) #taking out numerical elements
+
+#Count the frequency of each token
+word_freq <- tokens %>%
+  count(word, sort = TRUE)
+
+# Select the top 15 most common words
+top_words <- word_freq %>%
+  head(15)
+
+# Create a bar chart of the most common words
+library(ggplot2)
+ggplot(top_words, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "pink") +
+  coord_flip() +
+  labs(x = "Word", y = "Frequency", title = "Top 15 Most Common Words in Job Postings")
+
+
+
+```
+
+5. Do the same plot but now splitting between real and fake job posts. What insights do you get?
+
+```{r}
+
+# Hint: Use filter
+
+tokens <- fakejob %>%
+  unnest_tokens(word, description) %>%
+  anti_join(get_stopwords()) %>%
+  mutate(post_type = ifelse(fraudulent == 1, "Fake", "Real"))
+
+# Count the frequency of each word for each post type
+word_freq <- tokens %>%
+  count(post_type, word, sort = TRUE)
+
+# Create separate data frames for real and fake job postings
+real <- word_freq %>%
+  filter(post_type == "Real") %>%
+  head(15)
+
+fake <- word_freq %>%
+  filter(post_type == "Fake") %>%
+  head(15)
+
+# Create separate bar charts for real and fake job postings
+library(ggplot2)
+
+real_plot <- ggplot(real, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  coord_flip() +
+  labs(x = "Word", y = "Frequency", title = "Top 15 Most Common Words in Real Job Postings")+
+  theme(plot.title = element_text(size = 9))
+
+fake_plot <- ggplot(fake, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "pink") +
+  coord_flip() +
+  labs(x = "Word", y = "Frequency", title = "Top 15 Most Common Words in Fake Job Postings")+
+  theme(plot.title = element_text(size = 9))
+
+# Arrange the two plots side by side
+library(grid)
+library(gridExtra)
+require(gridExtra)
+
+grid.arrange(real_plot, fake_plot, ncol = 2)
+
+
+#Little can be deduced from this visualization. Of the top 15 most common words, the real and fake job postings have 10 matches ("work," "team," "business," "experience," "customer," "company," "seek," "management," "service," "apm").
+
+```
+
+6. To predict whether a job posting is fraudulent, it is important to look beyond words, and analyse what we call "text features". These include characteristics like the text length, number of characters per word, number of digits, number of propositions etc.
+One package in R that extracts text features is `textfeatures`. Install and explore the documentation of this package. Next, extract the text features from the descriptions in the dataset. In the function `textfeatures`, set `word_dims=FALSE`. Additional hint: It may be useful to join the dataset with the features (after extraction) with the dataset of the job postings (to keep all other variables). 
+
+```{r}
+install.packages("textfeatures")
+library(textfeatures)
+?textfeatures
+
+# Tiphany
+#features <- textfeatures(text_column = "description",
+#                          normalize = FALSE,
+#                          sentiment = FALSE,
+#                          word_dims = 0)
+
+# Anna
+features <- textfeatures(fakejob$description,
+                          normalize = FALSE,
+                          sentiment = FALSE,
+                          word_dims = 0)
+
+# join the dataset with the features to the original
+with_features <- cbind(fakejob, features)
+
+```
+
+5. Find now the average of the text features for each of the two types of posts. Then, represent the features for real vs fake posts, either in a plot or a table. Interpret your findings. Which type of job posting has usually more characters? Which has more digits? Why do you think this happens?
+
+```{r}
+
+# Hint: you may use group_by and summarize
+# alternatively, you can do a nice plot with ggplot
+
+with_features$description <- as.character(with_features$description)
+
+# text length
+text_length <- nchar(with_features$description)
+
+# characters per word
+library(stringr)
+characters <- sapply(str_split(with_features$description, " "), function(x) mean(nchar(x)))
+
+# number of digits
+digits <- sapply(str_extract_all(with_features$description, "\\d"), function(x) length(x))
+
+
+# average of the text features for each of the two types of posts
+library(dplyr)
+avg_text_features <- with_features %>%
+  group_by(fraudulent) %>%
+  summarize(
+    avg_text_length = mean(text_length),
+    avg_chars_per_word = mean(characters),
+    avg_num_digits = mean(digits)
+  )
+
+avg_text_features
+
+# ggplot
+#library(ggplot2)
+#avg_plot <- ggplot(avg_text_features, aes(x = factor(fraudulent), y = avg_text_length)) +
+#  geom_bar(stat = "identity", fill = "lightblue") +
+#  coord_flip() +
+#  labs(x = "Job Posting Type", y = "Average Text Length", fill = "Job Posting Type", title = "average of the text #features for each of #the two types of posts")+
+#  theme(plot.title = element_text(size = 9))
+
+
+```
+
+
+
+
+We will now start building a model to predict whether a job posting is spam. We will use two types of models: a multiple linear regression model and a decision tree. 
+
+The extracted features will be our explanatory variables, coupled with the following variables: `telecommuting`, `has_company_logo`, `employment_type` and `required_education`. Prepare a dataset with text features from the job description and these variables. 
+
+7. Start by splitting the data into a training and a testing set. Explain why this is important.  
+
+```{r}
+
+```
+
+
+```{r}
+
+# It is important to divide the dataset into a training set and a test set, in order to be able to train the model created for machine learning and evaluate its performance.
+
+# mutate character columns into factors
+with_features <- with_features %>% mutate_if(is.character, as.factor)
+
+# It is common to split the data 80-20
+set.seed(245)
+data_rows <- floor(0.80 * nrow(with_features))
+train_indices <- sample(c(1:nrow(with_features)), data_rows)
+train_data <- with_features[train_indices,]
+test_data <- with_features[-train_indices,]
+
+```
+
+```{r}
+
+```
+8. Fit a logit regression to the training set (using `glm()`), where the dependent variable is a binary variable equal to 1 if the posting is fake, and equal to zero otherwise. Interpret the output of the regression. Use the model to predict whether a job posting is fake in your test set. How accurate are your predictions? 
+Hint: It may be useful to use the function `confusionMatrix`from the package `caret`.
+
+```{r}
+
+# Code
+model <- glm(fraudulent ~ ., data = train_data[, c("fraudulent", "telecommuting", "has_company_logo", "employment_type", "required_education")], family = binomial)
+
+#, "text_length", "avg_chars_per_word", "avg_num_digits"
+
+# Make predictions on the test set
+predictions <- predict(model, newdata = test_data, type = "response")
+
+# Convert probabilities to binary predictions (0 or 1)
+predicted_labels <- ifelse(predictions > 0.5, 1, 0)
+
+# Load the caret library for confusion matrix calculation
+library(caret)
+
+# Create a confusion matrix
+confusion_matrix <- confusionMatrix(predicted_labels, test_data$fraudulent)
+
+# Print the confusion matrix
+print(confusion_matrix)
+
+```
+
+
+```{r}
+
+colnames(train_data)
+
+```
+
+
+9. Looking at the confusion matrix you obtained before, is there an issue with how the model is working? Would you use this model if someone tells you that it is very important to detect fake postings? Why? Why not? Hint: Maybe accuracy is not the only metric we should look at, look at the percentage of job postings that are predicted to be fake and comment on the usefulness of the model.
+
+```{r}
+
+# No code
+
+```
+
+10. Do the same now using a decision tree. You are free to play with the parameters of the tree, so as to maximize accuracy in the testing set. Represent the tree graphically. Explain briefly what you see. 
+
+```{r}
+
+# Code
+# Install Required Packages for Decision trees
+install.packages("rpart")
+install.packages("rpart.plot")
+library(rpart)
+library(rpart.plot)
+
+# Fit the decision tree model
+decision_tree <- rpart(fraudulent ~ ., method = "class", control = rpart.control(minsplit=10, cp=0.002), data = train_data)
+
+
+rpart.plot(decision_tree)
+
+```
+
+11. Compare the results of the decision tree with the ones from the regression. Which model is more useful in your opinion? Why?
+
+```{r}
+
+# No code
+
+```
+
+12. Finally, choose from the two models above the one who maximizes accuracy - call this model `final_model`, to which you can add other variables. You can also come up with another model if you prefer, using other methods. 
+
+Explain briefly what this model does and the main variables it uses to detect spam messages. To do this, you can explore the `vip` package, which allows you to plot the most important variables of a model. Discuss also how trustworthy your model is to detect fake job postings in data it has not seen.
+
+Note: Your final model will be tested in a `test` dataset that you have no access to. Please make sure your code runs so that I can evaluate its performance. I will rank your performance in terms of accuracy against the other groups. 20% of your grade in the assignment depends on how accurate your model is. Therefore, make sure that your model performs well in data it has not seen.
+
+```{r}
+
+# Code
+
+```
+
+
